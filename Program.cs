@@ -80,6 +80,7 @@ namespace OptimalBatch
                         while (true)
                         {
                             uint reserveQnt = Math.Min(batch.Balance, reqQnt);
+                            //if (reserveQnt <= 0) break;
                             batch.reserved += reserveQnt;
                             reqQnt -= reserveQnt;
                             batch.reqs.Add(Tuple.Create(req, reserveQnt));
@@ -116,11 +117,11 @@ namespace OptimalBatch
 
         private static uint GetBatchQuantity(uint optimalQuantity, uint maxQuantity, uint firstBatchQnt)
         {
-            if (firstBatchQnt > optimalQuantity * 2)
+            if (optimalQuantity > 0 && firstBatchQnt > optimalQuantity * 2)
                 firstBatchQnt = optimalQuantity;
             if (maxQuantity > 0 && firstBatchQnt > maxQuantity)
                 firstBatchQnt = maxQuantity;
-            return firstBatchQnt;
+            return firstBatchQnt > 0 ? firstBatchQnt : 1;
         }
     }
 
