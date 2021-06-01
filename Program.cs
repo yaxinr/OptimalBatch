@@ -12,7 +12,7 @@ namespace OptimalBatch
         {
             Requirement[] reqs = SeedSmallLastBatch();
             Console.WriteLine("reqs.Sum={0}", reqs.Sum(r => r.quantity));
-            var optimalBatches = OptimalBatchStatic.GetOptimalBatches(reqs, 26, 30, 1);
+            var optimalBatches = OptimalBatchStatic.GetOptimalBatches(reqs, 10, 17, 30, 1);
             foreach (var batch in optimalBatches)
             {
                 Console.WriteLine("limit={0}\treserv={1}\tbalance={2}\tqnt={3}\tdeadline={4}",
@@ -33,16 +33,16 @@ namespace OptimalBatch
             //new Requirement(15, new DateTime(2021, 5, 26) ),
             //new Requirement(1, new DateTime(2021, 6, 21) ),
 
-            new Requirement(8, new DateTime(2021, 7, 30) ),
-            new Requirement(18, new DateTime(2021, 8, 20) ),
-            new Requirement(2, new DateTime(2021, 8, 20) ),
-            new Requirement(20, new DateTime(2021, 8, 28) ),
-            //new Requirement(12, new DateTime(2021, 6,14) ),
-            //new Requirement(12, new DateTime(2021, 6,14) ),
-            //new Requirement(12, new DateTime(2021, 6,15) ),
-            //new Requirement(12, new DateTime(2021, 6,18) ),
-            //new Requirement(12, new DateTime(2021, 6,18) ),
-            //new Requirement(12, new DateTime(2021, 6,22) ),
+            new Requirement(6, new DateTime(2021, 5, 31) ),
+            new Requirement(2, new DateTime(2021, 6, 1) ),
+            new Requirement(5, new DateTime(2021, 6, 3) ),
+            new Requirement(6, new DateTime(2021, 6, 5) ),
+            new Requirement(2, new DateTime(2021, 6,6) ),
+            new Requirement(2, new DateTime(2021, 6,8) ),
+            new Requirement(2, new DateTime(2021, 6,9) ),
+            new Requirement(1, new DateTime(2021, 6,11) ),
+            new Requirement(3, new DateTime(2021, 6,12) ),
+            new Requirement(10, new DateTime(2021, 6,29) ),
             //new Requirement(12, new DateTime(2021, 6,22) ),
             //new Requirement(12, new DateTime(2021, 6,22) ),
             };
@@ -53,14 +53,13 @@ namespace OptimalBatch
 
     public static class OptimalBatchStatic
     {
-        public static List<Batch> GetOptimalBatches(Requirement[] requirements, uint maxQuantity, uint days = 30, uint frequency = 1)
+        public static List<Batch> GetOptimalBatches(Requirement[] requirements, uint optimalQuantity, uint maxQuantity, uint days = 30, uint frequency = 1)
         {
             var firstReq = requirements.First();
             List<Batch> batches = new List<Batch>();
             uint firstBatchQnt = (uint)requirements.Where(r => r.deadline < firstReq.deadline.AddDays(days))
                 .Sum(r => r.quantity);
-            if (firstBatchQnt > maxQuantity * 2)
-                firstBatchQnt = maxQuantity;
+            firstBatchQnt = GetBatchQuantity(optimalQuantity, maxQuantity, firstBatchQnt);
             var batch = new Batch(firstBatchQnt, firstReq, frequency);
             batches.Add(batch);
             for (int i = 0; i < requirements.Length; i++)
@@ -70,8 +69,7 @@ namespace OptimalBatch
                 {
                     uint batchQnt = (uint)requirements.Skip(i).Where(r => r.deadline < req.deadline.AddDays(days))
                         .Sum(r => r.quantity);
-                    if (batchQnt > maxQuantity * 2)
-                        batchQnt = maxQuantity;
+                    batchQnt = GetBatchQuantity(optimalQuantity, maxQuantity, batchQnt);
                     batch = new Batch(batchQnt, req, frequency);
                     batches.Add(batch);
                 }
@@ -91,8 +89,7 @@ namespace OptimalBatch
                                 uint batchQnt = reqQnt +
                                     (uint)requirements.Skip(i + 1).Where(r => r.deadline < req.deadline.AddDays(days))
                                     .Sum(r => r.quantity);
-                                if (batchQnt > maxQuantity * 2)
-                                    batchQnt = maxQuantity;
+                                batchQnt = GetBatchQuantity(optimalQuantity, maxQuantity, batchQnt);
                                 batch = new Batch(batchQnt, req, frequency);
                                 batches.Add(batch);
                             }
@@ -110,11 +107,20 @@ namespace OptimalBatch
                     }
                     else
                     {
-                        batch = new Batch(maxQuantity, req, frequency);
+                        batch = new Batch(optimalQuantity, req, frequency);
                         batches.Add(batch);
                     }
             }
             return batches;
+        }
+
+        private static uint GetBatchQuantity(uint optimalQuantity, uint maxQuantity, uint firstBatchQnt)
+        {
+            if (firstBatchQnt > optimalQuantity * 2)
+                firstBatchQnt = optimalQuantity;
+            if (maxQuantity > 0 && firstBatchQnt > maxQuantity)
+                firstBatchQnt = maxQuantity;
+            return firstBatchQnt;
         }
     }
 
