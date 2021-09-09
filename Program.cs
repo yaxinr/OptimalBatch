@@ -67,9 +67,8 @@ namespace OptimalBatch
                 var req = orderedReqs[i];
                 if (batch == null || batch.FreeLimit <= 0 || (batch.FreeQuantity <= 0 && req.deadline > batch.deadline.AddDays(days)))
                 {
-                    uint reqNetto = req.Netto
-                        + (uint)orderedReqs.Skip(i + 1).TakeWhile(r => r.deadline < req.deadline.AddDays(days))
-                            .Sum(r => r.quantity);
+                    uint reqNetto = (uint)orderedReqs.Skip(i).TakeWhile(r => r.deadline < req.deadline.AddDays(days))
+                            .Sum(r => r.Netto);
                     Console.WriteLine("req.Netto={0} reqNetto={1}", req.Netto, reqNetto);
 
                     var batchLimit = GetBatchLimit(optimalQuantity, maxQuantity, reqNetto);
