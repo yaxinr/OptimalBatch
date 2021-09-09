@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace OptimalBatch
 {
@@ -10,17 +8,20 @@ namespace OptimalBatch
     {
         static void Main()
         {
+            const int Days = 30;
             Requirement[] reqs = SeedSmallLastBatch();
-            Console.WriteLine("reqs.Sum={0}", reqs.Sum(r => r.quantity));
-            var optimalBatches = OptimalBatchStatic.GetOptimalBatches(reqs, 10, 17, 30, 1);
+            const int OptimalQuantity = 0;
+            const int MaxQuantity = 1000;
+            const int Frequency = 8;
+            Console.WriteLine("reqs.Sum={0} OptimalQuantity={1} MaxQuantity={2}", reqs.Sum(r => r.quantity), OptimalQuantity, MaxQuantity);
+            var optimalBatches = OptimalBatchStatic.GetOptimalBatches(reqs, OptimalQuantity, MaxQuantity, Days, Frequency);
+            foreach (var req in reqs.OrderBy(r => r.deadline))
+                Console.WriteLine(req);
             foreach (var batch in optimalBatches)
             {
-                Console.WriteLine("limit={0}\treserv={1}\tbalance={2}\tqnt={3}\tdeadline={4}",
-                    batch.limit, batch.reserved, batch.Balance, batch.Quantity, batch.deadline);
+                Console.WriteLine(batch);
                 foreach (var kv in batch.reqs)
-                {
-                    Console.WriteLine("\t{0}\t{1}", kv.Item2, kv.Item1.deadline);
-                }
+                    Console.WriteLine("\t{0}\t{1:d}", kv.Item2, kv.Item1.deadline);
             }
             Console.WriteLine("optimalBatches.Sum(b => b.Quantity)={0}", optimalBatches.Sum(b => b.Quantity));
             Console.Read();
@@ -33,16 +34,18 @@ namespace OptimalBatch
             //new Requirement(15, new DateTime(2021, 5, 26) ),
             //new Requirement(1, new DateTime(2021, 6, 21) ),
 
-            new Requirement(6, new DateTime(2021, 5, 31) ),
-            new Requirement(2, new DateTime(2021, 6, 1) ),
-            new Requirement(5, new DateTime(2021, 6, 3) ),
-            new Requirement(6, new DateTime(2021, 6, 5) ),
-            new Requirement(2, new DateTime(2021, 6,6) ),
-            new Requirement(2, new DateTime(2021, 6,8) ),
-            new Requirement(2, new DateTime(2021, 6,9) ),
-            new Requirement(1, new DateTime(2021, 6,11) ),
-            new Requirement(3, new DateTime(2021, 6,12) ),
-            new Requirement(10, new DateTime(2021, 6,29) ),
+            new Requirement(15, new DateTime(2021, 8, 1) ),
+            new Requirement(8, new DateTime(2021, 9, 1) ),
+            //new Requirement(4, new DateTime(2021, 8, 27) ),
+            //new Requirement(56, new DateTime(2021, 8, 29) ),
+            //new Requirement(16, new DateTime(2021, 8, 29) ),
+            //new Requirement(16, new DateTime(2021, 8, 29) ),
+            //new Requirement(2, new DateTime(2021, 6,6) ),
+            //new Requirement(2, new DateTime(2021, 6,8) ),
+            //new Requirement(2, new DateTime(2021, 6,9) ),
+            //new Requirement(1, new DateTime(2021, 6,11) ),
+            //new Requirement(3, new DateTime(2021, 6,12) ),
+            //new Requirement(10, new DateTime(2021, 6,29) ),
             //new Requirement(12, new DateTime(2021, 6,22) ),
             //new Requirement(12, new DateTime(2021, 6,22) ),
             };
@@ -55,80 +58,116 @@ namespace OptimalBatch
     {
         public static List<Batch> GetOptimalBatches(Requirement[] requirements, uint optimalQuantity, uint maxQuantity, uint days = 30, uint frequency = 1)
         {
-            var firstReq = requirements.First();
+            var orderedReqs = requirements.OrderBy(r => r.deadline).ToArray();
             List<Batch> batches = new List<Batch>();
-            uint firstBatchQnt = (uint)requirements.Where(r => r.deadline < firstReq.deadline.AddDays(days))
-                .Sum(r => r.quantity);
-            firstBatchQnt = GetBatchQuantity(optimalQuantity, maxQuantity, firstBatchQnt);
-            var batch = new Batch(firstBatchQnt, firstReq, frequency);
-            batches.Add(batch);
-            for (int i = 0; i < requirements.Length; i++)
+            Batch batch = null;
+            int i = 0;
+            while (i < orderedReqs.Length)
             {
-                var req = requirements[i];
-                if (batch.Balance == 0)
+                var req = orderedReqs[i];
+                if (batch == null || batch.FreeLimit <= 0 || (batch.FreeQuantity <= 0 && req.deadline > batch.deadline.AddDays(days)))
                 {
-                    uint batchQnt = (uint)requirements.Skip(i).Where(r => r.deadline < req.deadline.AddDays(days))
-                        .Sum(r => r.quantity);
-                    batchQnt = GetBatchQuantity(optimalQuantity, maxQuantity, batchQnt);
-                    batch = new Batch(batchQnt, req, frequency);
+                    uint reqNetto = req.Netto
+                        + (uint)orderedReqs.Skip(i + 1).TakeWhile(r => r.deadline < req.deadline.AddDays(days))
+                            .Sum(r => r.quantity);
+                    Console.WriteLine("req.Netto={0} reqNetto={1}", req.Netto, reqNetto);
+
+                    var batchLimit = GetBatchLimit(optimalQuantity, maxQuantity, reqNetto);
+                    batch = new Batch(batchLimit, req, frequency);
                     batches.Add(batch);
                 }
-                uint reqQnt = req.quantity;
-                while (true)
-                    if (req.deadline < batch.deadline.AddDays(days))
-                    {
-                        while (true)
-                        {
-                            uint reserveQnt = Math.Min(batch.Balance, reqQnt);
-                            //if (reserveQnt <= 0) break;
-                            batch.reserved += reserveQnt;
-                            reqQnt -= reserveQnt;
-                            batch.reqs.Add(Tuple.Create(req, reserveQnt));
+                uint reserveQnt = Math.Min(batch.FreeLimit, req.Netto);
+                req.reserved += reserveQnt;
+                batch.reserved += reserveQnt;
+                batch.reqs.Add(Tuple.Create(req, reserveQnt));
 
-                            if (reqQnt > 0)
-                            {
-                                uint batchQnt = reqQnt +
-                                    (uint)requirements.Skip(i + 1).Where(r => r.deadline < req.deadline.AddDays(days))
-                                    .Sum(r => r.quantity);
-                                batchQnt = GetBatchQuantity(optimalQuantity, maxQuantity, batchQnt);
-                                batch = new Batch(batchQnt, req, frequency);
-                                batches.Add(batch);
-                            }
-                            else break;
-                        }
-                        break;
-                    }
-                    else if (batch.Quantity > batch.reserved)
-                    {
-                        uint reserveQnt = Math.Min(batch.Quantity - batch.reserved, reqQnt);
-                        batch.reserved += reserveQnt;
-                        reqQnt -= reserveQnt;
-                        batch.reqs.Add(Tuple.Create(req, reserveQnt));
-                        if (reqQnt == 0) break;
-                    }
-                    else
-                    {
-                        batch = new Batch(optimalQuantity, req, frequency);
-                        batches.Add(batch);
-                    }
+                if (req.Netto <= 0) i++;
             }
             return batches;
         }
 
-        private static uint GetBatchQuantity(uint optimalQuantity, uint maxQuantity, uint firstBatchQnt)
+        //public static List<Batch> GetOptimalBatches1(Requirement[] requirements, uint optimalQuantity, uint maxQuantity, uint days = 30, uint frequency = 1)
+        //{
+        //    var orderedReqs = requirements.OrderBy(r => r.deadline).ToArray();
+        //    var firstReq = orderedReqs.First();
+        //    List<Batch> batches = new List<Batch>();
+        //    uint firstBatchQnt = (uint)orderedReqs.Where(r => r.deadline < firstReq.deadline.AddDays(days))
+        //        .Sum(r => r.quantity);
+        //    var batchLimit = GetBatchLimit(optimalQuantity, maxQuantity, firstBatchQnt);
+        //    var batch = new Batch(batchLimit, firstReq, frequency);
+        //    batches.Add(batch);
+        //    for (int i = 0; i < orderedReqs.Length; i++)
+        //    {
+        //        var req = orderedReqs[i];
+        //        if (batch.FreeLimit == 0)
+        //        {
+        //            uint batchQnt = (uint)orderedReqs.Skip(i).Where(r => r.deadline < req.deadline.AddDays(days))
+        //                .Sum(r => r.quantity);
+        //            batchQnt = GetBatchLimit(optimalQuantity, maxQuantity, batchQnt);
+        //            batch = new Batch(batchQnt, req, frequency);
+        //            batches.Add(batch);
+        //        }
+        //        uint reqQnt = req.quantity;
+        //        while (true)
+        //            if (req.deadline < batch.deadline.AddDays(days))
+        //            {
+        //                while (true)
+        //                {
+        //                    uint reserveQnt = Math.Min(batch.FreeLimit, reqQnt);
+        //                    //if (reserveQnt <= 0) break;
+        //                    batch.reserved += reserveQnt;
+        //                    reqQnt -= reserveQnt;
+        //                    batch.reqs.Add(Tuple.Create(req, reserveQnt));
+        //                    if (reqQnt > 0)
+        //                    {
+        //                        uint periodQnt = reqQnt +
+        //                            (uint)orderedReqs.Skip(i + 1).Where(r => r.deadline < req.deadline.AddDays(days))
+        //                            .Sum(r => r.quantity);
+        //                        var batchQnt = GetBatchLimit(optimalQuantity, maxQuantity, periodQnt);
+        //                        batch = new Batch(batchQnt, req, frequency);
+        //                        batches.Add(batch);
+        //                    }
+        //                    else break;
+        //                }
+        //                break;
+        //            }
+        //            else if (batch.FreeQuantity > 0)
+        //            {
+        //                uint reserveQnt = Math.Min(batch.FreeQuantity, reqQnt);
+        //                batch.reserved += reserveQnt;
+        //                reqQnt -= reserveQnt;
+        //                batch.reqs.Add(Tuple.Create(req, reserveQnt));
+        //                if (reqQnt == 0) break;
+        //            }
+        //            else
+        //            {
+        //                uint periodQnt = reqQnt +
+        //                    (uint)orderedReqs.Skip(i + 1).Where(r => r.deadline < req.deadline.AddDays(days))
+        //                    .Sum(r => r.quantity);
+        //                var batchQnt = GetBatchLimit(optimalQuantity, maxQuantity, periodQnt);
+        //                batch = new Batch(batchQnt, req, frequency);
+        //                batches.Add(batch);
+        //            }
+        //    }
+        //    return batches;
+        //}
+
+        private static uint GetBatchLimit(uint optimalQuantity, uint maxQuantity, uint periodQnt)
         {
-            if (optimalQuantity > 0 && firstBatchQnt > optimalQuantity * 2)
-                firstBatchQnt = optimalQuantity;
-            if (maxQuantity > 0 && firstBatchQnt > maxQuantity)
-                firstBatchQnt = maxQuantity;
-            return firstBatchQnt > 0 ? firstBatchQnt : 1;
+            if (optimalQuantity > 0 && periodQnt > optimalQuantity * 2)
+                periodQnt = optimalQuantity;
+            if (maxQuantity > optimalQuantity && periodQnt > maxQuantity)
+                periodQnt = maxQuantity;
+            return periodQnt > 0 ? periodQnt : 1;
         }
     }
 
-    public struct Requirement
+    public class Requirement
     {
         public DateTime deadline;
         public uint quantity;
+        public uint reserved = 0;
+        public uint Netto => quantity - reserved;
         public object req;
 
         public Requirement(uint quantity, DateTime deadline, object req = null)
@@ -136,6 +175,10 @@ namespace OptimalBatch
             this.quantity = quantity;
             this.deadline = deadline;
             this.req = req;
+        }
+        public override string ToString()
+        {
+            return string.Format("deadline={0:d}\tqnt={1}", deadline, quantity);
         }
     }
 
@@ -157,8 +200,9 @@ namespace OptimalBatch
             this.reqs = new List<Tuple<Requirement, uint>>();
         }
 
-        public uint Balance => limit - reserved;
+        public uint FreeLimit => limit - reserved;
         public uint Quantity => QuantityByFrequency(frequency, reserved);
+        public uint FreeQuantity => Quantity - reserved;
 
         public static uint QuantityByFrequency(uint frequency, uint quantity)
         {
@@ -168,6 +212,10 @@ namespace OptimalBatch
                 return billetQnt * frequency;
             }
             return quantity;
+        }
+        public override string ToString()
+        {
+            return string.Format("Batch deadline={0:d}\treserved={1}\tlimit={2}\tFreeLimit={3}\tQuantity={4}", deadline, reserved, limit, FreeLimit, Quantity);
         }
     }
 }
