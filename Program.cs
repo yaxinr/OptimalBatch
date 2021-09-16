@@ -10,11 +10,13 @@ namespace OptimalBatch
         {
             const int Days = 30;
             Requirement[] reqs = SeedSmallLastBatch();
+            Console.WriteLine("reqs.Sum(x => x.quantity)={0}", reqs.Sum(x => x.quantity));
             const int OptimalQuantity = 0;
             const int MaxQuantity = 1000;
-            const int Frequency = 8;
+            const int MustFrequency = 1;
+            const int RecomendedFrequency = 10;
             Console.WriteLine("reqs.Sum={0} OptimalQuantity={1} MaxQuantity={2}", reqs.Sum(r => r.quantity), OptimalQuantity, MaxQuantity);
-            var optimalBatches = OptimalBatchStatic.GetOptimalBatches(reqs, OptimalQuantity, MaxQuantity, Days, Frequency);
+            var optimalBatches = OptimalBatchStatic.GetOptimalBatches(reqs, OptimalQuantity, MaxQuantity, Days, MustFrequency, RecomendedFrequency);
             foreach (var req in reqs.OrderBy(r => r.deadline))
                 Console.WriteLine(req);
             foreach (var batch in optimalBatches)
@@ -24,6 +26,7 @@ namespace OptimalBatch
                     Console.WriteLine("\t{0}\t{1:d}", kv.Item2, kv.Item1.deadline);
             }
             Console.WriteLine("optimalBatches.Sum(b => b.Quantity)={0}", optimalBatches.Sum(b => b.Quantity));
+            Console.WriteLine("optimalBatches.Sum(b => b.FreeQuantity)={0}", optimalBatches.Sum(b => b.FreeQuantity));
             Console.Read();
         }
 
@@ -34,8 +37,12 @@ namespace OptimalBatch
             //new Requirement(15, new DateTime(2021, 5, 26) ),
             //new Requirement(1, new DateTime(2021, 6, 21) ),
 
-            new Requirement(15, new DateTime(2021, 8, 1) ),
-            new Requirement(8, new DateTime(2021, 9, 1) ),
+            new Requirement(4, new DateTime(2021, 1, 1) ),
+            new Requirement(8, new DateTime(2021, 1, 1) ),
+            //new Requirement(200, new DateTime(2021, 2, 1) ),
+            //new Requirement(300, new DateTime(2021, 3, 1) ),
+            //new Requirement(300, new DateTime(2021, 5, 1) ),
+            //new Requirement(300, new DateTime(2021, 12, 1) ),
             //new Requirement(4, new DateTime(2021, 8, 27) ),
             //new Requirement(56, new DateTime(2021, 8, 29) ),
             //new Requirement(16, new DateTime(2021, 8, 29) ),
@@ -56,33 +63,68 @@ namespace OptimalBatch
 
     public static class OptimalBatchStatic
     {
-        public static List<Batch> GetOptimalBatches(Requirement[] requirements, uint optimalQuantity, uint maxQuantity, uint days = 30, uint frequency = 1)
+        public static List<Batch> GetOptimalBatches(Requirement[] requirements, int optimalQuantity, int maxQuantity, uint days = 30, int mustFrequency = 1, int recomendedFrequency = 1)
         {
             var orderedReqs = requirements.OrderBy(r => r.deadline).ToArray();
             List<Batch> batches = new List<Batch>();
             Batch batch = null;
             int i = 0;
+            recomendedFrequency = LCM(mustFrequency, recomendedFrequency);
             while (i < orderedReqs.Length)
             {
                 var req = orderedReqs[i];
                 if (batch == null || batch.FreeLimit <= 0 || (batch.FreeQuantity <= 0 && req.deadline > batch.deadline.AddDays(days)))
                 {
-                    uint reqNetto = (uint)orderedReqs.Skip(i).TakeWhile(r => r.deadline < req.deadline.AddDays(days))
+                    var reqNetto = orderedReqs.Skip(i).TakeWhile(r => r.deadline < req.deadline.AddDays(days))
                             .Sum(r => r.Netto);
                     Console.WriteLine("req.Netto={0} reqNetto={1}", req.Netto, reqNetto);
 
                     var batchLimit = GetBatchLimit(optimalQuantity, maxQuantity, reqNetto);
-                    batch = new Batch(batchLimit, req, frequency);
+                    batch = new Batch(batchLimit, req, recomendedFrequency);
                     batches.Add(batch);
                 }
-                uint reserveQnt = Math.Min(batch.FreeLimit, req.Netto);
+                var reserveQnt = Math.Min(batch.FreeLimit, req.Netto);
                 req.reserved += reserveQnt;
                 batch.reserved += reserveQnt;
                 batch.reqs.Add(Tuple.Create(req, reserveQnt));
 
                 if (req.Netto <= 0) i++;
             }
+            if (mustFrequency > 0)
+            {
+                var lastBatch = batches.LastOrDefault();
+                if (lastBatch != null)
+                    lastBatch.frequency = mustFrequency;
+            }
             return batches;
+        }
+
+        //greatest common divisor
+        static int GCD(int n1, int n2)
+        {
+            int div;
+            if (n1 == n2) return n1;
+            int d = n1 - n2;
+            if (d < 0)
+            {
+                d = -d; div = GCD(n1, d);
+            }
+            else
+                div = GCD(n2, d);
+            return div;
+        }
+
+        //least common multiple
+        public static int LCM(int n1, int n2)
+        {
+            return
+                n1 < 2
+                    ? n2 < 2
+                        ? 1
+                        : n2
+                    : n2 < 2
+                        ? n1
+                        : n1 * n2 / GCD(n1, n2);
         }
 
         //public static List<Batch> GetOptimalBatches1(Requirement[] requirements, uint optimalQuantity, uint maxQuantity, uint days = 30, uint frequency = 1)
@@ -151,7 +193,7 @@ namespace OptimalBatch
         //    return batches;
         //}
 
-        private static uint GetBatchLimit(uint optimalQuantity, uint maxQuantity, uint periodQnt)
+        private static int GetBatchLimit(int optimalQuantity, int maxQuantity, int periodQnt)
         {
             if (optimalQuantity > 0 && periodQnt > optimalQuantity * 2)
                 periodQnt = optimalQuantity;
@@ -164,12 +206,12 @@ namespace OptimalBatch
     public class Requirement
     {
         public DateTime deadline;
-        public uint quantity;
-        public uint reserved = 0;
-        public uint Netto => quantity - reserved;
+        public int quantity;
+        public int reserved = 0;
+        public int Netto => quantity - reserved;
         public object req;
 
-        public Requirement(uint quantity, DateTime deadline, object req = null)
+        public Requirement(int quantity, DateTime deadline, object req = null)
         {
             this.quantity = quantity;
             this.deadline = deadline;
@@ -184,30 +226,30 @@ namespace OptimalBatch
     public class Batch
     {
         public DateTime deadline;
-        public uint limit;
+        public int limit;
         public object requirement;
-        public List<Tuple<Requirement, uint>> reqs;
-        public uint reserved = 0;
-        public uint frequency;
+        public List<Tuple<Requirement, int>> reqs;
+        public int reserved = 0;
+        public int frequency;
 
-        public Batch(uint limit, Requirement requirement, uint frequency)
+        public Batch(int limit, Requirement requirement, int frequency)
         {
             this.limit = QuantityByFrequency(frequency, limit);
             this.deadline = requirement.deadline;
             this.requirement = requirement.req;
             this.frequency = frequency;
-            this.reqs = new List<Tuple<Requirement, uint>>();
+            this.reqs = new List<Tuple<Requirement, int>>();
         }
 
-        public uint FreeLimit => limit - reserved;
-        public uint Quantity => QuantityByFrequency(frequency, reserved);
-        public uint FreeQuantity => Quantity - reserved;
+        public int FreeLimit => limit - reserved;
+        public int Quantity => QuantityByFrequency(frequency, reserved);
+        public int FreeQuantity => Quantity - reserved;
 
-        public static uint QuantityByFrequency(uint frequency, uint quantity)
+        public static int QuantityByFrequency(int frequency, int quantity)
         {
             if (frequency > 1 && quantity % frequency > 0)
             {
-                uint billetQnt = (quantity / frequency) + 1;
+                int billetQnt = (quantity / frequency) + 1;
                 return billetQnt * frequency;
             }
             return quantity;
