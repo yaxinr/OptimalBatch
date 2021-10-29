@@ -8,14 +8,17 @@ namespace OptimalBatchV2
     {
         static void Main()
         {
+            TestMustFrequency();
+        }
+        static void Test(CalcParams calcParams, Requirement[] reqs)
+        {
             const int Days = 30;
-            Requirement[] reqs = SeedManyReqs();
             Console.WriteLine("reqs.Sum(x => x.quantity)={0}", reqs.Sum(x => x.quantity));
-            const int OptimalQuantity = 66;
-            const int MaxQuantity = 272;
-            const int avgQnt = 130;
-            const int MustFrequency = 1;
-            const int RecomendedFrequency = 10;
+            int OptimalQuantity = calcParams.OptimalQuantity;
+            int MaxQuantity = calcParams.MaxQuantity;
+            int avgQnt = calcParams.avgQnt;
+            int MustFrequency = calcParams.MustFrequency;
+            int RecomendedFrequency = calcParams.RecomendedFrequency;
             Console.WriteLine("reqs.Sum={0} OptimalQuantity={1} MaxQuantity={2}", reqs.Sum(r => r.quantity), OptimalQuantity, MaxQuantity);
             var optimalBatches = OptimalBatchStatic.GetOptimalBatches(reqs, OptimalQuantity, MaxQuantity, Days, MustFrequency, RecomendedFrequency, avgQnt);
             foreach (var req in reqs.OrderBy(r => r.deadline))
@@ -27,53 +30,80 @@ namespace OptimalBatchV2
                     Console.WriteLine("\t{0}\t{1:d}", kv.Item2, kv.Item1.deadline);
             }
             Console.WriteLine("optimalBatches.Sum(b => b.Quantity)={0}", optimalBatches.Sum(b => b.Quantity));
+            Console.WriteLine("optimalBatches.Sum(b => b.reserved)={0}", optimalBatches.Sum(b => b.reserved));
             Console.WriteLine("optimalBatches.Sum(b => b.FreeQuantity)={0}", optimalBatches.Sum(b => b.FreeQuantity));
             Console.Read();
         }
 
-        private static Requirement[] SeedOneReq()
+        private static void TestOneReq()
         {
+            var calcParams = new CalcParams()
+            {
+                OptimalQuantity = 11,
+                MaxQuantity = 120,
+                avgQnt = 130,
+                MustFrequency = 4,
+                RecomendedFrequency = 20
+            };
             Requirement[] reqs = new Requirement[] {
                 new Requirement(10, new DateTime(2021, 10, 6) ),
             };
-            return reqs;
+            Test(calcParams, reqs);
         }
-        private static Requirement[] SeedSmallLastBatch()
+        private static void TestSmallLastBatch()
         {
             Requirement[] reqs = new Requirement[] {
-            new Requirement(22, new DateTime(2021, 11, 14) ),
-            new Requirement(200, new DateTime(2022, 1, 15) ),
+                new Requirement(22, new DateTime(2021, 11, 14) ),
+                new Requirement(200, new DateTime(2022, 1, 15) ),
             };
-            return reqs;
+            var calcParams = new CalcParams()
+            {
+                OptimalQuantity = 50,
+                MaxQuantity = 999,
+                avgQnt = 0,
+                MustFrequency = 1,
+                RecomendedFrequency = 1
+            };
+            Test(calcParams, reqs);
         }
-        private static Requirement[] SeedManyReqs()
+        private static void TestRecomendedFrequency()
         {
             Requirement[] reqs = new Requirement[] {
-
-            //new Requirement(15, new DateTime(2021, 5, 26) ),
-            //new Requirement(1, new DateTime(2021, 6, 21) ),
-
-            new Requirement(22, new DateTime(2021, 1, 1) ),
-            //new Requirement(8, new DateTime(2021, 1, 1) ),
-            new Requirement(200, new DateTime(2021, 2, 1) ),
-            new Requirement(300, new DateTime(2021, 3, 1) ),
-            new Requirement(300, new DateTime(2021, 5, 1) ),
-            new Requirement(300, new DateTime(2021, 12, 1) ),
-            //new Requirement(4, new DateTime(2021, 8, 27) ),
-            //new Requirement(56, new DateTime(2021, 8, 29) ),
-            //new Requirement(16, new DateTime(2021, 8, 29) ),
-            //new Requirement(16, new DateTime(2021, 8, 29) ),
-            //new Requirement(2, new DateTime(2021, 6,6) ),
-            //new Requirement(2, new DateTime(2021, 6,8) ),
-            //new Requirement(2, new DateTime(2021, 6,9) ),
-            //new Requirement(1, new DateTime(2021, 6,11) ),
-            //new Requirement(3, new DateTime(2021, 6,12) ),
-            //new Requirement(10, new DateTime(2021, 6,29) ),
-            //new Requirement(12, new DateTime(2021, 6,22) ),
-            //new Requirement(12, new DateTime(2021, 6,22) ),
+                new Requirement(10, new DateTime(2021, 1, 1) ),
+                new Requirement(10, new DateTime(2021, 2, 1) ),
+                new Requirement(10, new DateTime(2021, 3, 1) ),
+                new Requirement(10, new DateTime(2021, 5, 1) ),
+                new Requirement(11, new DateTime(2021, 12, 1) ),
             };
-            //var optimalBatches = OptimalBatchStatic.GetOptimalBatches(reqs, 75, 30, 5);
-            return reqs;
+            var calcParams = new CalcParams()
+            {
+                OptimalQuantity = 5,
+                MaxQuantity = 999,
+                avgQnt = 0,
+                MustFrequency = 2,
+                RecomendedFrequency = 3
+            };
+            Test(calcParams, reqs);
+        }
+        private static void TestMustFrequency()
+        {
+            Requirement[] reqs = new Requirement[] {
+                new Requirement(100, new DateTime(2021, 1, 1) ),
+                new Requirement(100, new DateTime(2021, 1, 2) ),
+                new Requirement(100, new DateTime(2021, 2, 1) ),
+                new Requirement(100, new DateTime(2021, 3, 1) ),
+                new Requirement(10, new DateTime(2021, 5, 1) ),
+                new Requirement(11, new DateTime(2021, 12, 1) ),
+            };
+            var calcParams = new CalcParams()
+            {
+                OptimalQuantity = 69,
+                MaxQuantity = 160,
+                avgQnt = 0,
+                MustFrequency = 5,
+                RecomendedFrequency = 1
+            };
+            Test(calcParams, reqs);
         }
         private static Requirement[] SeedPerevodnikReqs()
         {
@@ -123,7 +153,8 @@ namespace OptimalBatchV2
                             .TakeWhile(r => r.deadline < req.deadline.AddDays(days))
                             .Sum(r => r.Netto);
                         var batchLimit = GetBatchLimit(optimalQuantity, maxQuantity, periodNetto, allNetto, avgQnt);
-                        var limitByFrequency = QuantityByFrequency(recomendedFrequency, batchLimit);
+                        var quantityRecomendedFrequency = QuantityByFrequency(recomendedFrequency, batchLimit);
+                        var limitByFrequency = quantityRecomendedFrequency < allNetto ? quantityRecomendedFrequency : batchLimit;
                         if (maxQuantity > 0 && limitByFrequency > maxQuantity)
                             limitByFrequency = QuantityByFrequency(mustFrequency, batchLimit);
                         batch = new Batch(limitByFrequency, req, mustFrequency);
@@ -136,9 +167,6 @@ namespace OptimalBatchV2
                     if (batch.FreeQuantity <= 0) break;
                 }
             }
-            var lastBatch = batches.LastOrDefault();
-            if (lastBatch != null)
-                lastBatch.quantity = lastBatch.reserved;
             return batches;
         }
 
@@ -234,11 +262,19 @@ namespace OptimalBatchV2
         }
 
         public int Quantity => OptimalBatchStatic.QuantityByFrequency(frequency, quantity);
-        public int FreeQuantity => quantity - reserved;
+        public int FreeQuantity => Quantity - reserved;
 
         public override string ToString()
         {
             return string.Format("Batch deadline={0:d}\treserved={1}\tquantity={2}\tFreeQuantity={3}\tQuantity={4}", deadline, reserved, quantity, FreeQuantity, Quantity);
         }
+    }
+    public struct CalcParams
+    {
+        public int OptimalQuantity;
+        public int MaxQuantity;
+        public int avgQnt;
+        public int MustFrequency;
+        public int RecomendedFrequency;
     }
 }
