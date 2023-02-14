@@ -41,68 +41,77 @@ namespace OptimalBatchV2
             }
             return batches;
         }
-        public static List<Batch> GetOptimalBatches(Requirement[] requirements, int pieceCost, int adjustCost, decimal bankDayRate, int maxQuantity, int mustFrequency = 1, int recomendedFrequency = 1, int avgQnt = 0)
+        public static List<Batch> GetOptimalBatches(Requirement[] requirements, int pieceCost, int adjustCost, decimal bankDayRate, int maxBatchQuantity, int mustFrequency = 1, int recomendedFrequency = 1, int avgQnt = 0)
         {
+            if (requirements.Length == 0) return new List<Batch>();
+            requirements = requirements.GroupBy(r => r.deadline.Date).Select(g => new Requirement(g.Sum(r => r.quantity), g.Key, g.First().req)).ToArray();
             var orderedReqs = requirements.OrderBy(r => r.deadline).ToList();
             List<Batch> batches = new List<Batch>();
             Batch batch = null;
-            if (avgQnt > 0)
-                orderedReqs.Insert(0, new Requirement(avgQnt - orderedReqs.Sum(r => r.Netto), requirements.First().deadline));
             recomendedFrequency = LCM(mustFrequency, recomendedFrequency);
-            var recomendedMaxQuantity = QuantityByFrequencyDown(recomendedFrequency, maxQuantity);
-            if (recomendedMaxQuantity > 0) maxQuantity = recomendedMaxQuantity;
+            if (maxBatchQuantity <= 0) maxBatchQuantity = int.MaxValue;
+            var recomendedMaxQuantity = QuantityByFrequencyDown(recomendedFrequency, maxBatchQuantity);
+            if (recomendedMaxQuantity > 0) maxBatchQuantity = recomendedMaxQuantity;
             while (true)
             {
-                var allNetto = orderedReqs.Sum(r => r.Netto);
-                if (allNetto <= 0)
-                    break;
-                var req = orderedReqs.Where(r => r.Netto > 0).First();
+                var req = orderedReqs.FirstOrDefault(r => r.Netto > 0);
+                if (req == null) break;
+
+                if (batch == null || batch.FreeLimit <= 0)
                 {
-                    var deadline = req.deadline;
-                    if (batch != null)
+                    int reserveQnt = Math.Min(req.Netto, maxBatchQuantity);
+                    req.reserved += reserveQnt;
+                    batch = new Batch(maxBatchQuantity, reserveQnt, req, mustFrequency, pieceCost, adjustCost, avgQnt);
+                    batch.reqs.Add(Tuple.Create(req, reserveQnt));
+                    batches.Add(batch);
+                }
+                else
+                {
+                    if (batch.FreeQuantity > 0)
                     {
-                        int reqQuantity = req.Netto;
-                        while (reqQuantity > 0)
+                        int reserveQnt = Math.Min(batch.FreeQuantity, req.Netto);
+                        req.reserved += reserveQnt;
+                        batch.Reserved += reserveQnt;
+                        batch.quantity = batch.Reserved;
+                        int directCost = reserveQnt * pieceCost;
+                        decimal reqCost = directCost + (decimal)((req.deadline - batch.deadline).TotalDays * directCost) * bankDayRate;
+                        batch.Cost += reqCost;
+                        batch.reqs.Add(Tuple.Create(req, reserveQnt));
+                    }
+                    if (req.Netto > 0)
+                    {
+                        int qnt = 0;
+                        int initQnt = 1;
+                        if (recomendedFrequency > 1)
                         {
-                            int directCost = reqQuantity * pieceCost;
-                            decimal reqCost = directCost + (decimal)((req.deadline - batch.deadline).TotalDays * directCost) * bankDayRate;
+                            initQnt = recomendedFrequency - batch.Reserved % recomendedFrequency;
+                            if (initQnt > req.Netto)
+                                initQnt = 1;
+                        }
+                        for (var reqQuantity = initQnt; reqQuantity <= req.Netto; reqQuantity++)
+                        {
+                            decimal reqCost = reqQuantity * pieceCost * (1m + bankDayRate * (decimal)(req.deadline - batch.deadline).TotalDays);
                             int newQuantity = batch.Reserved + reqQuantity;
                             decimal price = (batch.Cost + reqCost) / newQuantity;
-                            if (price <= batch.Price)
-                            {
-                                var reserveQnt = Math.Min(batch.FreeLimit, reqQuantity);
-                                reqQuantity -= reserveQnt;
-                                req.reserved += reserveQnt;
-                                batch.Reserved += reserveQnt;
-                                batch.Cost += reqCost;
-                                batch.reqs.Add(Tuple.Create(req, reserveQnt));
-                                if (batch.FreeLimit <= 0) break;
-                            }
-                            else
-                            {
-                                reqQuantity /= 2;
-                                if (reqQuantity <= 0)
-                                {
-                                    int quantity = Math.Min(req.Netto, maxQuantity);
-                                    req.reserved += quantity;
-                                    batch = new Batch(maxQuantity, quantity, req, mustFrequency, pieceCost, adjustCost);
-                                    batches.Add(batch);
-
-                                    reqQuantity = req.Netto;
-                                }
-                            }
+                            if (price < batch.Price * 0.95m || (recomendedFrequency>1 && price < batch.Price && newQuantity % recomendedFrequency == 0))
+                                qnt = reqQuantity;
+                            else break;
                         }
-                    }
-                    else
-                    {
-                        int quantity = Math.Min(req.Netto, maxQuantity);
-                        req.reserved += quantity;
-                        batch = new Batch(maxQuantity, quantity, req, mustFrequency, pieceCost, adjustCost);
-                        batches.Add(batch);
+                        if (qnt > 0)
+                        {
+                            var reserveQnt = qnt;
+                            req.reserved += reserveQnt;
+                            batch.Reserved += reserveQnt;
+                            batch.quantity = batch.Reserved;
+                            decimal reqCost = reserveQnt * pieceCost * (1m + bankDayRate * (decimal)(req.deadline - batch.deadline).TotalDays);
+                            batch.Cost += reqCost;
+                            batch.reqs.Add(Tuple.Create(req, reserveQnt));
+                        }
+                        else
+                            batch = null;
                     }
                 }
             }
-            batches.ForEach(b => b.quantity = b.Reserved);
             return batches;
         }
 
@@ -213,10 +222,10 @@ namespace OptimalBatchV2
             this.frequency = frequency;
             reqs = new List<Tuple<Requirement, int>>();
         }
-        public Batch(int limit, int reserved, Requirement requirement, int frequency, int pieceCost, int adjustCost)
+        public Batch(int limit, int reserved, Requirement requirement, int frequency, int pieceCost, int adjustCost, int minQuantity = 0)
         {
             Limit = OptimalBatchStatic.QuantityByFrequency(frequency, limit);
-            quantity = 0;
+            quantity = Math.Max(minQuantity, reserved);
             Reserved = reserved;
             deadline = requirement.deadline;
             this.requirement = requirement.req;
