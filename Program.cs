@@ -67,14 +67,14 @@ namespace OptimalBatchV2
                 }
                 else
                 {
+                    decimal reqPieceCost = pieceCost * (1m + bankDayRate * (decimal)(req.deadline - batch.deadline).TotalDays);
                     if (batch.FreeQuantity > 0)
                     {
                         int reserveQnt = Math.Min(batch.FreeQuantity, req.Netto);
                         req.reserved += reserveQnt;
                         batch.Reserved += reserveQnt;
                         batch.quantity = batch.Reserved;
-                        int directCost = reserveQnt * pieceCost;
-                        decimal reqCost = directCost + (decimal)((req.deadline - batch.deadline).TotalDays * directCost) * bankDayRate;
+                        decimal reqCost = reserveQnt * reqPieceCost;
                         batch.Cost += reqCost;
                         batch.reqs.Add(Tuple.Create(req, reserveQnt));
                     }
@@ -89,24 +89,25 @@ namespace OptimalBatchV2
                             if (initQnt > limitedQnt)
                                 initQnt = 1;
                         }
+                        decimal prevPrice = batch.Price;
                         for (var reqQuantity = initQnt; reqQuantity <= limitedQnt; reqQuantity++)
                         {
-                            decimal reqCost = reqQuantity * pieceCost * (1m + bankDayRate * (decimal)(req.deadline - batch.deadline).TotalDays);
                             int newQuantity = batch.Reserved + reqQuantity;
-                            decimal price = (batch.Cost + reqCost) / newQuantity;
-                            if (price < batch.Price * 0.99m || (recomendedFrequency > 1 && price < batch.Price && newQuantity % recomendedFrequency == 0))
+                            decimal price = (batch.Cost + reqQuantity * reqPieceCost) / newQuantity;
+                            if (price < prevPrice * 0.995m || (recomendedFrequency > 1 && price < prevPrice && newQuantity % recomendedFrequency == 0))
+                            {
                                 qnt = reqQuantity;
+                                prevPrice = price;
+                            }
                             else break;
                         }
                         if (qnt > 0)
                         {
-                            var reserveQnt = qnt;
-                            req.reserved += reserveQnt;
-                            batch.Reserved += reserveQnt;
+                            req.reserved += qnt;
+                            batch.Reserved += qnt;
                             batch.quantity = batch.Reserved;
-                            decimal reqCost = reserveQnt * pieceCost * (1m + bankDayRate * (decimal)(req.deadline - batch.deadline).TotalDays);
-                            batch.Cost += reqCost;
-                            batch.reqs.Add(Tuple.Create(req, reserveQnt));
+                            batch.Cost += qnt * reqPieceCost;
+                            batch.reqs.Add(Tuple.Create(req, qnt));
                         }
                         else
                             batch = null;
