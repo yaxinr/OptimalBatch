@@ -78,22 +78,23 @@ namespace OptimalBatchV2
                         batch.Cost += reqCost;
                         batch.reqs.Add(Tuple.Create(req, reserveQnt));
                     }
-                    if (req.Netto > 0)
+                    int limitedQnt = Math.Min(req.Netto, batch.FreeLimit);
+                    if (limitedQnt > 0)
                     {
                         int qnt = 0;
                         int initQnt = 1;
                         if (recomendedFrequency > 1)
                         {
                             initQnt = recomendedFrequency - batch.Reserved % recomendedFrequency;
-                            if (initQnt > req.Netto)
+                            if (initQnt > limitedQnt)
                                 initQnt = 1;
                         }
-                        for (var reqQuantity = initQnt; reqQuantity <= req.Netto; reqQuantity++)
+                        for (var reqQuantity = initQnt; reqQuantity <= limitedQnt; reqQuantity++)
                         {
                             decimal reqCost = reqQuantity * pieceCost * (1m + bankDayRate * (decimal)(req.deadline - batch.deadline).TotalDays);
                             int newQuantity = batch.Reserved + reqQuantity;
                             decimal price = (batch.Cost + reqCost) / newQuantity;
-                            if (price < batch.Price * 0.95m || (recomendedFrequency>1 && price < batch.Price && newQuantity % recomendedFrequency == 0))
+                            if (price < batch.Price * 0.99m || (recomendedFrequency > 1 && price < batch.Price && newQuantity % recomendedFrequency == 0))
                                 qnt = reqQuantity;
                             else break;
                         }
@@ -226,6 +227,7 @@ namespace OptimalBatchV2
         {
             Limit = OptimalBatchStatic.QuantityByFrequency(frequency, limit);
             quantity = Math.Max(minQuantity, reserved);
+            quantity = Math.Min(Limit, quantity);
             Reserved = reserved;
             deadline = requirement.deadline;
             this.requirement = requirement.req;
