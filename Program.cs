@@ -6,42 +6,7 @@ namespace OptimalBatchV2
 {
     public static class OptimalBatchStatic
     {
-        public static List<Batch> GetOptimalBatches(Requirement[] requirements, int optimalQuantity, int maxQuantity, uint days = 30, int mustFrequency = 1, int recomendedFrequency = 1, int avgQnt = 0)
-        {
-            var orderedReqs = requirements.OrderBy(r => r.deadline).ToArray();
-            List<Batch> batches = new List<Batch>();
-            Batch batch = null;
-            recomendedFrequency = LCM(mustFrequency, recomendedFrequency);
-            while (true)
-            {
-                var allNetto = orderedReqs.Sum(r => r.Netto);
-                if (allNetto <= 0)
-                    break;
-                foreach (var req in orderedReqs.Where(r => r.Netto > 0))
-                {
-                    if (batch == null || batch.FreeQuantity <= 0)
-                    {
-                        var periodNetto = orderedReqs
-                            .TakeWhile(r => r.deadline < req.deadline.AddDays(days))
-                            .Sum(r => r.Netto);
-                        var batchLimit = GetBatchLimit(optimalQuantity, maxQuantity, periodNetto, allNetto, avgQnt);
-                        var quantityRecomendedFrequency = QuantityByFrequency(recomendedFrequency, batchLimit);
-                        var limitByFrequency = quantityRecomendedFrequency < allNetto ? quantityRecomendedFrequency : batchLimit;
-                        if (maxQuantity > 0 && limitByFrequency > maxQuantity)
-                            limitByFrequency = QuantityByFrequency(mustFrequency, batchLimit);
-                        batch = new Batch(limitByFrequency, req, mustFrequency);
-                        batches.Add(batch);
-                    }
-                    var reserveQnt = Math.Min(batch.FreeQuantity, req.Netto);
-                    req.reserved += reserveQnt;
-                    batch.Reserved += reserveQnt;
-                    batch.reqs.Add(Tuple.Create(req, reserveQnt));
-                    if (batch.FreeQuantity <= 0) break;
-                }
-            }
-            return batches;
-        }
-        public static List<Batch> GetOptimalBatches(Requirement[] requirements, int pieceCost, int adjustCost, decimal bankDayRate, int maxBatchQuantity, int mustFrequency = 1, int recomendedFrequency = 1, int avgQnt = 0)
+        public static List<Batch> GetOptimalBatches(Requirement[] requirements, int pieceCost, int adjustCost, double bankDayRate, int maxBatchQuantity, int mustFrequency = 1, int recomendedFrequency = 1, int avgQnt = 0)
         {
             if (requirements.Length == 0) return new List<Batch>();
             requirements = requirements.GroupBy(r => r.deadline.Date).Select(g => new Requirement(g.Sum(r => r.quantity), g.Key, g.First().req)).ToArray();
@@ -67,16 +32,15 @@ namespace OptimalBatchV2
                 }
                 else
                 {
-                    decimal reqPieceCost = pieceCost * (1m + bankDayRate * (decimal)(req.deadline - batch.deadline).TotalDays);
+                    double reqPieceCost = pieceCost * (1 + bankDayRate * (req.deadline - batch.deadline).TotalDays);
                     if (batch.FreeQuantity > 0)
                     {
-                        int reserveQnt = Math.Min(batch.FreeQuantity, req.Netto);
-                        req.reserved += reserveQnt;
-                        batch.Reserved += reserveQnt;
+                        int qnt = Math.Min(batch.FreeQuantity, req.Netto);
+                        req.reserved += qnt;
+                        batch.Reserved += qnt;
                         batch.quantity = batch.Reserved;
-                        decimal reqCost = reserveQnt * reqPieceCost;
-                        batch.Cost += reqCost;
-                        batch.reqs.Add(Tuple.Create(req, reserveQnt));
+                        batch.Cost += qnt * reqPieceCost;
+                        batch.reqs.Add(Tuple.Create(req, qnt));
                     }
                     int limitedQnt = Math.Min(req.Netto, batch.FreeLimit);
                     if (limitedQnt > 0)
@@ -89,12 +53,12 @@ namespace OptimalBatchV2
                             if (initQnt > limitedQnt)
                                 initQnt = 1;
                         }
-                        decimal prevPrice = batch.Price;
+                        double prevPrice = batch.Price;
                         for (var reqQuantity = initQnt; reqQuantity <= limitedQnt; reqQuantity++)
                         {
                             int newQuantity = batch.Reserved + reqQuantity;
-                            decimal price = (batch.Cost + reqQuantity * reqPieceCost) / newQuantity;
-                            if (price < prevPrice * 0.995m || (recomendedFrequency > 1 && price < prevPrice && newQuantity % recomendedFrequency == 0))
+                            double price = (batch.Cost + reqQuantity * reqPieceCost) / newQuantity;
+                            if (price < prevPrice * 0.995 || (recomendedFrequency > 1 && price < prevPrice && newQuantity % recomendedFrequency == 0))
                             {
                                 qnt = reqQuantity;
                                 prevPrice = price;
@@ -144,21 +108,6 @@ namespace OptimalBatchV2
                         ? n1
                         : n1 * n2 / GCD(n1, n2);
         }
-
-        private static int GetBatchLimit(int optimalQuantity, int maxQuantity, int periodReq, int allReq, int avgQnt)
-        {
-            int qnt = periodReq;
-            if (optimalQuantity > 1 && qnt < optimalQuantity)
-                qnt = allReq < optimalQuantity
-                    ? allReq
-                    : Math.Min(optimalQuantity, allReq / 2);
-            if (avgQnt > 0 && qnt < optimalQuantity)
-                qnt = Math.Min(optimalQuantity, avgQnt);
-            if (maxQuantity > 0 && qnt > maxQuantity)
-                qnt = maxQuantity;
-            return qnt > 0 ? qnt : 1;
-        }
-
         public static int QuantityByFrequency(int frequency, int quantity)
         {
             if (frequency > 1 && quantity % frequency > 0)
@@ -214,8 +163,8 @@ namespace OptimalBatchV2
         public int FreeQuantity => Quantity - Reserved;
         public int FreeLimit => Limit - Reserved;
         public int DirectCost => Reserved * PieceCost + AdjustCost;
-        public decimal Cost = 0;
-        public decimal Price => Cost / Reserved;
+        public double Cost = 0;
+        public double Price => Cost / Reserved;
         public Batch(int quantity, Requirement requirement, int frequency)
         {
             this.quantity = quantity;
