@@ -10,18 +10,17 @@ namespace OptimalBatchV2
         {
             if (requirements.Length == 0) return new List<Batch>();
             requirements = requirements.GroupBy(r => r.deadline.Date).Select(g => new Requirement(g.Sum(r => r.quantity), g.Key, g.First().req)).ToArray();
-            var orderedReqs = requirements.OrderBy(r => r.deadline).ToList();
+            var linkedList = new LinkedList<Requirement>(requirements.OrderBy(r => r.deadline));
             List<Batch> batches = new List<Batch>();
             Batch batch = null;
             recomendedFrequency = LCM(mustFrequency, recomendedFrequency);
             if (maxBatchQuantity <= 0) maxBatchQuantity = int.MaxValue;
             var recomendedMaxQuantity = QuantityByFrequencyDown(recomendedFrequency, maxBatchQuantity);
             if (recomendedMaxQuantity > 0) maxBatchQuantity = recomendedMaxQuantity;
-            while (true)
+            var reqNode = linkedList.First;
+            while (reqNode != null)
             {
-                var req = orderedReqs.FirstOrDefault(r => r.Netto > 0);
-                if (req == null) break;
-
+                var req = reqNode.Value;
                 if (batch == null || batch.FreeLimit <= 0)
                 {
                     int reserveQnt = Math.Min(req.Netto, maxBatchQuantity);
@@ -33,50 +32,35 @@ namespace OptimalBatchV2
                 else
                 {
                     double reqPieceCost = pieceCost * (1 + bankDayRate * (req.deadline - batch.deadline).TotalDays);
+                    int qnt = Math.Min(req.Netto, batch.FreeQuantity);
                     if (batch.FreeQuantity > 0)
                     {
-                        int qnt = Math.Min(batch.FreeQuantity, req.Netto);
                         req.reserved += qnt;
                         batch.Reserved += qnt;
                         batch.quantity = batch.Reserved;
                         batch.Cost += qnt * reqPieceCost;
                         batch.reqs.Add(Tuple.Create(req, qnt));
                     }
-                    int limitedQnt = Math.Min(req.Netto, batch.FreeLimit);
-                    if (limitedQnt > 0)
+                    qnt = Math.Min(req.Netto, batch.FreeLimit);
+                    if (qnt > 0)
                     {
-                        int qnt = 0;
-                        int initQnt = 1;
-                        if (recomendedFrequency > 1)
-                        {
-                            initQnt = recomendedFrequency - batch.Reserved % recomendedFrequency;
-                            if (initQnt > limitedQnt)
-                                initQnt = 1;
-                        }
-                        double prevPrice = batch.Price;
-                        for (var reqQuantity = initQnt; reqQuantity <= limitedQnt; reqQuantity++)
-                        {
-                            int newQuantity = batch.Reserved + reqQuantity;
-                            double price = (batch.Cost + reqQuantity * reqPieceCost) / newQuantity;
-                            if (price < prevPrice * 0.995 || (recomendedFrequency > 1 && price < prevPrice && newQuantity % recomendedFrequency == 0))
-                            {
-                                qnt = reqQuantity;
-                                prevPrice = price;
-                            }
-                            else break;
-                        }
-                        if (qnt > 0)
+                        double newCost = batch.Cost + qnt * reqPieceCost;
+                        var newReserved = batch.Reserved + qnt;
+                        double price = newCost / newReserved;
+                        if (price < batch.Price)
                         {
                             req.reserved += qnt;
-                            batch.Reserved += qnt;
-                            batch.quantity = batch.Reserved;
-                            batch.Cost += qnt * reqPieceCost;
+                            batch.Reserved = newReserved;
+                            batch.quantity = newReserved;
+                            batch.Cost = newCost;
                             batch.reqs.Add(Tuple.Create(req, qnt));
                         }
                         else
                             batch = null;
                     }
                 }
+                if (req.Netto <= 0)
+                    reqNode = reqNode.Next;
             }
             return batches;
         }
