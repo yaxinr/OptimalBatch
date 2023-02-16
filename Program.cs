@@ -18,7 +18,7 @@ namespace OptimalBatchV2
             var recomendedMaxQuantity = QuantityByFrequencyDown(recomendedFrequency, maxBatchQuantity);
             if (recomendedMaxQuantity > 0) maxBatchQuantity = recomendedMaxQuantity;
             var reqNode = linkedList.First;
-            while (reqNode != null)
+            do
             {
                 var req = reqNode.Value;
                 if (batch == null || batch.FreeLimit <= 0)
@@ -61,7 +61,7 @@ namespace OptimalBatchV2
                 }
                 if (req.Netto <= 0)
                     reqNode = reqNode.Next;
-            }
+            } while (reqNode != null);
             return batches;
         }
 
