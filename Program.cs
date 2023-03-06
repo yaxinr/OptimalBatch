@@ -9,7 +9,6 @@ namespace OptimalBatchV2
         public static List<Batch> GetOptimalBatches(Requirement[] requirements, int pieceCost, int adjustCost, double bankDayRate, int maxBatchQuantity, int mustFrequency = 1, int recomendedFrequency = 1, int avgQnt = 0)
         {
             if (requirements.Length == 0) return new List<Batch>();
-            requirements = requirements.GroupBy(r => r.deadline.Date).Select(g => new Requirement(g.Sum(r => r.quantity), g.Key, g.First().req)).ToArray();
             var linkedList = new LinkedList<Requirement>(requirements.OrderBy(r => r.deadline));
             List<Batch> batches = new List<Batch>();
             Batch batch = null;
