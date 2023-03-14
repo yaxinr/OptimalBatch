@@ -6,10 +6,56 @@ namespace OptimalBatchV2
 {
     public static class OptimalBatchStatic
     {
+        public static Batch[] GetOptimalBatches(Requirement[] requirements, int pieceCost, int adjustCost, int pieceSeconds, int adjustSeconds, double bankDayRate, int maxBatchQuantity, int mustFrequency = 1, int recomendedFrequency = 1, int avgQnt = 0)
+        {
+            if (requirements.Length == 0) return Array.Empty<Batch>();
+            int optQuantity = pieceSeconds > 0 ? (5 * adjustSeconds) / pieceSeconds : 0;
+            int requiredSumQuantity = requirements.Sum(x => x.quantity);
+            if (optQuantity > requiredSumQuantity / 2)
+                optQuantity = requiredSumQuantity / 2;
+            var linkedList = new LinkedList<Requirement>(requirements.OrderBy(r => r.Deadline));
+            List<Batch> batches = new List<Batch>();
+            Batch batch = null;
+            recomendedFrequency = LCM(mustFrequency, recomendedFrequency);
+            if (maxBatchQuantity <= 0) maxBatchQuantity = int.MaxValue;
+            var recomendedMaxQuantity = QuantityByFrequencyDown(recomendedFrequency, maxBatchQuantity);
+            if (recomendedMaxQuantity > 0) maxBatchQuantity = recomendedMaxQuantity;
+            var reqNode = linkedList.First;
+            do
+            {
+                var req = reqNode.Value;
+                if (batch != null && batch.FreeQuantity > 0)
+                {
+                    int qnt = Math.Min(req.Netto, batch.FreeQuantity);
+                    double reqPieceCost = pieceCost * (1 + bankDayRate * (req.Deadline - batch.deadline).TotalDays);
+                    req.reserved += qnt;
+                    batch.Reserved += qnt;
+                    batch.quantity = Math.Max(batch.Reserved, batch.quantity);
+                    batch.Cost += qnt * reqPieceCost;
+                    batch.reqs.Add(Tuple.Create(req, qnt));
+                }
+                else
+                {
+                    int dateQnt = requirements.Where(x => x.Deadline <= req.Deadline.AddDays(2)).Sum(x => x.Netto);
+                    int reserveQnt = Math.Min(req.Netto, maxBatchQuantity);
+                    req.reserved += reserveQnt;
+                    int minQnt = Math.Max(optQuantity, dateQnt);
+                    minQnt = Math.Max(minQnt, avgQnt);
+                    batch = new Batch(maxBatchQuantity, reserveQnt, req, mustFrequency, pieceCost, adjustCost, minQnt);
+                    batch.reqs.Add(Tuple.Create(req, reserveQnt));
+                    batches.Add(batch);
+                }
+                if (req.Netto <= 0)
+                    reqNode = reqNode.Next;
+            } while (reqNode != null);
+            var last = batches.Last();
+            last.quantity = last.Reserved;
+            return batches.ToArray();
+        }
         public static List<Batch> GetOptimalBatches(Requirement[] requirements, int pieceCost, int adjustCost, double bankDayRate, int maxBatchQuantity, int mustFrequency = 1, int recomendedFrequency = 1, int avgQnt = 0)
         {
             if (requirements.Length == 0) return new List<Batch>();
-            var linkedList = new LinkedList<Requirement>(requirements.OrderBy(r => r.deadline));
+            var linkedList = new LinkedList<Requirement>(requirements.OrderBy(r => r.Deadline));
             List<Batch> batches = new List<Batch>();
             Batch batch = null;
             recomendedFrequency = LCM(mustFrequency, recomendedFrequency);
@@ -30,7 +76,7 @@ namespace OptimalBatchV2
                 }
                 else
                 {
-                    double reqPieceCost = pieceCost * (1 + bankDayRate * (req.deadline - batch.deadline).TotalDays);
+                    double reqPieceCost = pieceCost * (1 + bankDayRate * (req.Deadline - batch.deadline).TotalDays);
                     int qnt = Math.Min(req.Netto, batch.FreeQuantity);
                     if (batch.FreeQuantity > 0)
                     {
@@ -113,7 +159,7 @@ namespace OptimalBatchV2
 
     public class Requirement
     {
-        public DateTime deadline;
+        public DateTime Deadline;
         public int quantity;
         public int reserved = 0;
         public int Netto => quantity - reserved;
@@ -122,12 +168,12 @@ namespace OptimalBatchV2
         public Requirement(int quantity, DateTime deadline, object req = null)
         {
             this.quantity = quantity;
-            this.deadline = deadline;
+            Deadline = deadline.Date;
             this.req = req;
         }
         public override string ToString()
         {
-            return string.Format("deadline={0:d}\tqnt={1}", deadline, quantity);
+            return string.Format("deadline={0:d}\tqnt={1}", Deadline, quantity);
         }
     }
 
@@ -151,7 +197,7 @@ namespace OptimalBatchV2
         public Batch(int quantity, Requirement requirement, int frequency)
         {
             this.quantity = quantity;
-            deadline = requirement.deadline;
+            deadline = requirement.Deadline;
             this.requirement = requirement.req;
             this.frequency = frequency;
             reqs = new List<Tuple<Requirement, int>>();
@@ -162,7 +208,7 @@ namespace OptimalBatchV2
             quantity = Math.Max(minQuantity, reserved);
             quantity = Math.Min(Limit, quantity);
             Reserved = reserved;
-            deadline = requirement.deadline;
+            deadline = requirement.Deadline;
             this.requirement = requirement.req;
             this.frequency = frequency;
             reqs = new List<Tuple<Requirement, int>>();
