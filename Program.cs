@@ -6,17 +6,19 @@ namespace OptimalBatchV2
 {
     public static class OptimalBatchStatic
     {
-        public static Batch[] GetOptimalBatches(Requirement[] requirements, int pieceCost, int adjustCost, int pieceSeconds, int adjustSeconds, double bankDayRate, int maxBatchQuantity, int mustFrequency = 1, int recomendedFrequency = 1, int avgQnt = 0)
+        const int UNION_DAYS = 7;
+        public static Batch[] GetOptimalBatchesByDuration(Requirement[] requirements, int pieceCost, int adjustCost, int pieceSeconds, int adjustSeconds, double bankDayRate, int maxBatchQuantity, int mustFrequency = 1, int recomendedFrequency = 1, int avgQnt = 0)
         {
             if (requirements.Length == 0) return Array.Empty<Batch>();
+            recomendedFrequency = LCM(mustFrequency, recomendedFrequency);
             int optQuantity = pieceSeconds > 0 ? (5 * adjustSeconds) / pieceSeconds : 0;
             int requiredSumQuantity = requirements.Sum(x => x.quantity);
             if (optQuantity > requiredSumQuantity / 2)
                 optQuantity = requiredSumQuantity / 2;
+            optQuantity = QuantityByFrequency(recomendedFrequency, optQuantity);
             var linkedList = new LinkedList<Requirement>(requirements.OrderBy(r => r.Deadline));
             List<Batch> batches = new List<Batch>();
             Batch batch = null;
-            recomendedFrequency = LCM(mustFrequency, recomendedFrequency);
             if (maxBatchQuantity <= 0) maxBatchQuantity = int.MaxValue;
             var recomendedMaxQuantity = QuantityByFrequencyDown(recomendedFrequency, maxBatchQuantity);
             if (recomendedMaxQuantity > 0) maxBatchQuantity = recomendedMaxQuantity;
@@ -52,9 +54,9 @@ namespace OptimalBatchV2
             last.quantity = last.Reserved;
             return batches.ToArray();
         }
-        public static List<Batch> GetOptimalBatches(Requirement[] requirements, int pieceCost, int adjustCost, double bankDayRate, int maxBatchQuantity, int mustFrequency = 1, int recomendedFrequency = 1, int avgQnt = 0)
+        public static Batch[] GetOptimalBatches(Requirement[] requirements, int pieceCost, int adjustCost, double bankDayRate, int maxBatchQuantity, int mustFrequency = 1, int recomendedFrequency = 1, int avgQnt = 0)
         {
-            if (requirements.Length == 0) return new List<Batch>();
+            if (requirements.Length == 0) return Array.Empty<Batch>();
             var linkedList = new LinkedList<Requirement>(requirements.OrderBy(r => r.Deadline));
             List<Batch> batches = new List<Batch>();
             Batch batch = null;
@@ -68,9 +70,11 @@ namespace OptimalBatchV2
                 var req = reqNode.Value;
                 if (batch == null || batch.FreeLimit <= 0)
                 {
+                    int dateQnt = requirements.Where(x => x.Deadline < req.Deadline.AddDays(UNION_DAYS)).Sum(x => x.Netto);
+                    int minQnt = Math.Max(dateQnt, avgQnt);
                     int reserveQnt = Math.Min(req.Netto, maxBatchQuantity);
                     req.reserved += reserveQnt;
-                    batch = new Batch(maxBatchQuantity, reserveQnt, req, mustFrequency, pieceCost, adjustCost, avgQnt);
+                    batch = new Batch(maxBatchQuantity, reserveQnt, req, mustFrequency, pieceCost, adjustCost, minQnt);
                     batch.reqs.Add(Tuple.Create(req, reserveQnt));
                     batches.Add(batch);
                 }
@@ -82,32 +86,56 @@ namespace OptimalBatchV2
                     {
                         req.reserved += qnt;
                         batch.Reserved += qnt;
-                        batch.quantity = batch.Reserved;
+                        batch.quantity = Math.Max(batch.Reserved, batch.quantity);
                         batch.Cost += qnt * reqPieceCost;
                         batch.reqs.Add(Tuple.Create(req, qnt));
                     }
                     qnt = Math.Min(req.Netto, batch.FreeLimit);
                     if (qnt > 0)
                     {
-                        double newCost = batch.Cost + qnt * reqPieceCost;
-                        var newReserved = batch.Reserved + qnt;
-                        double price = newCost / newReserved;
-                        if (price < batch.Price)
-                        {
-                            req.reserved += qnt;
-                            batch.Reserved = newReserved;
-                            batch.quantity = newReserved;
-                            batch.Cost = newCost;
-                            batch.reqs.Add(Tuple.Create(req, qnt));
-                        }
-                        else
+                        var oldPrice = batch.Price;
+                        bool found = false;
+                        if (CheckPrice(batch, reqPieceCost, qnt, oldPrice, out double newCost, out int newReserved, out double price))
+                            for (var i = 1; i <= qnt; i++)
+                            {
+                                if (CheckPrice(batch, reqPieceCost, i, oldPrice, out newCost, out newReserved, out price))
+                                {
+                                    found = true;
+                                    req.reserved += i;
+                                    batch.Reserved = newReserved;
+                                    batch.quantity = Math.Max(newReserved, batch.quantity); ;
+                                    batch.Cost = newCost;
+                                    batch.reqs.Add(Tuple.Create(req, qnt));
+                                    break;
+                                }
+                                oldPrice = price;
+                            }
+                        if (!found)
                             batch = null;
                     }
                 }
                 if (req.Netto <= 0)
                     reqNode = reqNode.Next;
             } while (reqNode != null);
-            return batches;
+            var last = batches.Last();
+            if (avgQnt == 0)
+                last.quantity = last.Reserved;
+            return batches.ToArray();
+        }
+
+        private static bool CheckPrice(Batch batch, double reqPieceCost, int addingQuantity, double oldPrice, out double newCost, out int newReserved, out double newPrice)
+        {
+            newCost = batch.Cost + addingQuantity * reqPieceCost;
+            newReserved = batch.Reserved + addingQuantity;
+            newPrice = newCost / newReserved;
+            return newPrice < oldPrice * 0.95;
+        }
+        private static bool CheckCost(Batch batch, double reqPieceCost, int addingQuantity, double oldPrice, out double newCost, out int newReserved, out double newPrice)
+        {
+            newCost = batch.Cost + addingQuantity * reqPieceCost;
+            newReserved = batch.Reserved + addingQuantity;
+            newPrice = newCost / newReserved;
+            return newPrice < oldPrice * 0.95;
         }
 
         //greatest common divisor
