@@ -6,7 +6,7 @@ namespace OptimalBatchV2
 {
     public static class OptimalBatchStatic
     {
-        const int UNION_DAYS = 7;
+        const int UNION_DAYS = 14;
         public static Batch[] GetOptimalBatchesByDuration(Requirement[] requirements, int pieceCost, int adjustCost, int pieceSeconds, int adjustSeconds, double bankDayRate, int maxBatchQuantity, int mustFrequency = 1, int recomendedFrequency = 1, int avgQnt = 0)
         {
             if (requirements.Length == 0) return Array.Empty<Batch>();
@@ -38,7 +38,7 @@ namespace OptimalBatchV2
                 }
                 else
                 {
-                    int dateQnt = requirements.Where(x => x.Deadline <= req.Deadline.AddDays(2)).Sum(x => x.Netto);
+                    int dateQnt = requirements.Where(x => x.Deadline <= req.Deadline.AddDays(UNION_DAYS)).Sum(x => x.Netto);
                     int reserveQnt = Math.Min(req.Netto, maxBatchQuantity);
                     req.reserved += reserveQnt;
                     int minQnt = Math.Max(optQuantity, dateQnt);
@@ -130,12 +130,29 @@ namespace OptimalBatchV2
             newPrice = newCost / newReserved;
             return newPrice < oldPrice * 0.95;
         }
-        private static bool CheckCost(Batch batch, double reqPieceCost, int addingQuantity, double oldPrice, out double newCost, out int newReserved, out double newPrice)
+        private static bool CheckCost(Batch batch, double reqPieceCost, int addingQuantity, double oldPrice, int allReqQuantity, out double newCost, out int newReserved, out double newPrice)
         {
-            newCost = batch.Cost + addingQuantity * reqPieceCost;
-            newReserved = batch.Reserved + addingQuantity;
-            newPrice = newCost / newReserved;
-            return newPrice < oldPrice * 0.95;
+            int resudualQuantity = allReqQuantity - batch.Quantity;
+            int residualBatchCost = resudualQuantity * batch.PieceCost + batch.AdjustCost;
+            double oneBatchCost = allReqQuantity * batch.PieceCost + batch.AdjustCost;
+            double oneBatchPrice = oneBatchCost / allReqQuantity;
+            double twoBatchCost = batch.Cost + residualBatchCost;
+            double twoBatchPrice = twoBatchCost / allReqQuantity;
+            if (twoBatchPrice * 0.8 < oneBatchPrice)
+            {
+                newCost = batch.Cost + addingQuantity * reqPieceCost;
+                newReserved = batch.Reserved + addingQuantity;
+                newPrice = newCost / newReserved;
+                return newPrice < oldPrice * 0.95;
+            }
+            else
+            {
+                addingQuantity = resudualQuantity;
+                newCost = batch.Cost + addingQuantity * reqPieceCost;
+                newReserved = batch.Reserved + addingQuantity;
+                newPrice = newCost / newReserved;
+                return true;
+            }
         }
 
         //greatest common divisor
